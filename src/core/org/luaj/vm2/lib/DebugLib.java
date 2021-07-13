@@ -387,10 +387,10 @@ public class DebugLib extends TwoArgFunction {
 	//	debug.upvaluejoin (f1, n1, f2, n2)
 	static final class upvaluejoin extends VarArgFunction {
 		public Varargs invoke(Varargs args) {
-			LuaClosure f1 = args.checkclosure(1);
 			int n1 = args.checkint(2);
-			LuaClosure f2 = args.checkclosure(3);
+			LuaClosure f1 = args.checkclosure(1);
 			int n2 = args.checkint(4);
+			LuaClosure f2 = args.checkclosure(3);
 			if (n1 < 1 || n1 > f1.upValues.length)
 				argerror("index out of range");
 			if (n2 < 1 || n2 > f2.upValues.length)
