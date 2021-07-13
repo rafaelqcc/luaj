@@ -372,8 +372,8 @@ public class DebugLib extends TwoArgFunction {
 	//	debug.upvalueid (f, n)
 	static final class upvalueid extends VarArgFunction {
 		public Varargs invoke(Varargs args) {
-			LuaValue func = args.checkfunction(1);
 			int up = args.checkint(2);
+			LuaValue func = args.checkfunction(1);
 			if ( func instanceof LuaClosure ) {
 				LuaClosure c = (LuaClosure) func;
 				if ( c.upValues != null && up > 0 && up <= c.upValues.length ) {
