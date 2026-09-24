@@ -1,3 +1,9 @@
+This project is a fork of LuaJ by the original LuaJ contributors.
+It contains bug fixes, compatibility improvements, and other changes.
+
+^
+
+
 # This is a fork!
 <div style="border: 1px dotted red; margin: 1.em 0.5em; font-weight: bold; color: red;">
 This repository has been forked from the original CVS sources of Luaj.
