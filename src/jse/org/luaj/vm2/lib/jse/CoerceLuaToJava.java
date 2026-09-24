@@ -10,7 +10,7 @@
 *
 * The above copyright notice and this permission notice shall be included in
 * all copies or substantial portions of the Software.
-* 
+*
 * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -31,12 +31,12 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 
 /**
- * Helper class to coerce values from lua to Java within the luajava library. 
+ * Helper class to coerce values from lua to Java within the luajava library.
  * <p>
- * This class is primarily used by the {@link org.luaj.vm2.lib.jse.LuajavaLib}, 
- * but can also be used directly when working with Java/lua bindings. 
+ * This class is primarily used by the {@link org.luaj.vm2.lib.jse.LuajavaLib},
+ * but can also be used directly when working with Java/lua bindings.
  * <p>
- * To coerce to specific Java values, generally the {@code toType()} methods 
+ * To coerce to specific Java values, generally the {@code toType()} methods
  * on {@link LuaValue} may be used:
  * <ul>
  * <li>{@link LuaValue#toboolean()}</li>
@@ -51,9 +51,9 @@ import org.luaj.vm2.LuaValue;
  * <li>{@link LuaValue#touserdata(Class)}</li>
  * </ul>
  * <p>
- * For data in lua tables, the various methods on {@link LuaTable} can be used directly 
+ * For data in lua tables, the various methods on {@link LuaTable} can be used directly
  * to convert data to something more useful.
- * 
+ *
  * @see org.luaj.vm2.lib.jse.LuajavaLib
  * @see CoerceJavaToLua
  */
@@ -62,13 +62,15 @@ public class CoerceLuaToJava {
 	static int SCORE_NULL_VALUE     =    0x10;
 	static int SCORE_WRONG_TYPE     =   0x100;
 	static int SCORE_UNCOERCIBLE    = 0x10000;
-	
-	static interface Coercion { 
+	static int SCORE_OBJECT_FALLBACK = 0x40;
+	static int SCORE_INHERITANCE = 0x20;
+
+	static interface Coercion {
 		public int score( LuaValue value );
 		public Object coerce( LuaValue value );
 	};
 
-	/** 
+	/**
 	 * Coerce a LuaValue value to a specified java class
 	 * @param value LuaValue to coerce
 	 * @param clazz Class to coerce into
@@ -77,9 +79,9 @@ public class CoerceLuaToJava {
 	public static Object coerce(LuaValue value, Class clazz) {
 		return getCoercion(clazz).coerce(value);
 	}
-	
+
 	static final Map COERCIONS = Collections.synchronizedMap(new HashMap());
-	
+
 	static final class BoolCoercion implements Coercion {
 		public String toString() {
 			return "BoolCoercion()";
@@ -107,83 +109,115 @@ public class CoerceLuaToJava {
 		static final int TARGET_TYPE_DOUBLE = 6;
 		static final String[] TYPE_NAMES = { "byte", "char", "short", "int", "long", "float", "double" };
 		final int targetType;
+		final boolean nullable;
 		public String toString() {
 			return "NumericCoercion("+TYPE_NAMES[targetType]+")";
 		}
-		NumericCoercion(int targetType) {
-			this.targetType = targetType;
-		}
-		public int score( LuaValue value ) {
-			int fromStringPenalty = 0;
-			if ( value.type() == LuaValue.TSTRING ) {
-				value = value.tonumber();
-				if ( value.isnil() ) {
-					return SCORE_UNCOERCIBLE;
-				}
-				fromStringPenalty = 4;
-			}
-			if ( value.isint() ) {
-				switch ( targetType ) {
-				case TARGET_TYPE_BYTE: {
-					int i = value.toint();
-					return fromStringPenalty + ((i==(byte)i)? 0: SCORE_WRONG_TYPE);
-				}
-				case TARGET_TYPE_CHAR: {
-					int i = value.toint();
-					return fromStringPenalty + ((i==(byte)i)? 1: (i==(char)i)? 0: SCORE_WRONG_TYPE);
-				}
-				case TARGET_TYPE_SHORT: {
-					int i = value.toint();
-					return fromStringPenalty +
-							((i==(byte)i)? 1: (i==(short)i)? 0: SCORE_WRONG_TYPE);
-				}
-				case TARGET_TYPE_INT: { 
-					int i = value.toint();
-					return fromStringPenalty +
-							((i==(byte)i)? 2: ((i==(char)i) || (i==(short)i))? 1: 0);
-				}
-				case TARGET_TYPE_FLOAT: return fromStringPenalty + 1;
-				case TARGET_TYPE_LONG: return fromStringPenalty + 1;
-				case TARGET_TYPE_DOUBLE: return fromStringPenalty + 2;
-				default: return SCORE_WRONG_TYPE;
-				}
-			} else if ( value.isnumber() ) {
-				switch ( targetType ) {
-				case TARGET_TYPE_BYTE: return SCORE_WRONG_TYPE;
-				case TARGET_TYPE_CHAR: return SCORE_WRONG_TYPE;
-				case TARGET_TYPE_SHORT: return SCORE_WRONG_TYPE;
-				case TARGET_TYPE_INT: return SCORE_WRONG_TYPE;
-				case TARGET_TYPE_LONG: {
-					double d = value.todouble();
-					return fromStringPenalty + ((d==(long)d)? 0: SCORE_WRONG_TYPE);
-				}
-				case TARGET_TYPE_FLOAT: {
-					double d = value.todouble();
-					return fromStringPenalty + ((d==(float)d)? 0: SCORE_WRONG_TYPE);
-				}
-				case TARGET_TYPE_DOUBLE: {
-					double d = value.todouble();
-					return fromStringPenalty + (((d==(long)d) || (d==(float)d))? 1: 0);
-				}
-				default: return SCORE_WRONG_TYPE;
-				}
-			} else {
-				return SCORE_UNCOERCIBLE;
-			}
-		}
+		NumericCoercion(int targetType, boolean nullable) {
+            this.targetType = targetType;
+            this.nullable = nullable;
+        }
+		public int score(LuaValue value) {
+            if (value.isnil()) {
+                return nullable ? SCORE_NULL_VALUE : SCORE_UNCOERCIBLE;
+            }
 
-		public Object coerce(LuaValue value) {
-			switch ( targetType ) {
-			case TARGET_TYPE_BYTE: return new Byte( (byte) value.toint() );
-			case TARGET_TYPE_CHAR: return new Character( (char) value.toint() );
-			case TARGET_TYPE_SHORT: return new Short( (short) value.toint() );
-			case TARGET_TYPE_INT: return new Integer( (int) value.toint() );
-			case TARGET_TYPE_LONG: return new Long( (long) value.todouble() );
-			case TARGET_TYPE_FLOAT: return new Float( (float) value.todouble() );
-			case TARGET_TYPE_DOUBLE: return new Double( (double) value.todouble() );
-			default: return null;
-			}
-		}
+            int fromStringPenalty = 0;
+
+            if (value.type() == LuaValue.TSTRING) {
+                value = value.tonumber();
+                if (value.isnil()) {
+                    return SCORE_UNCOERCIBLE;
+                }
+                fromStringPenalty = 4;
+            }
+
+            if (value.isint()) {
+                switch (targetType) {
+                case TARGET_TYPE_BYTE: {
+                    int i = value.toint();
+                    return fromStringPenalty +
+                            ((i == (byte)i) ? 0 : SCORE_WRONG_TYPE);
+                }
+
+                case TARGET_TYPE_CHAR: {
+                    int i = value.toint();
+                    return fromStringPenalty +
+                            ((i == (byte)i) ? 1 :
+                             (i == (char)i) ? 0 :
+                             SCORE_WRONG_TYPE);
+                }
+
+                case TARGET_TYPE_SHORT: {
+                    int i = value.toint();
+                    return fromStringPenalty +
+                            ((i == (byte)i) ? 1 :
+                             (i == (short)i) ? 0 :
+                             SCORE_WRONG_TYPE);
+                }
+
+                case TARGET_TYPE_INT:
+                    return fromStringPenalty + 0;
+
+                case TARGET_TYPE_LONG:
+                    return fromStringPenalty + 1;
+
+                case TARGET_TYPE_FLOAT:
+                    return fromStringPenalty + 2;
+
+                case TARGET_TYPE_DOUBLE:
+                    return fromStringPenalty + 3;
+
+                default:
+                    return SCORE_WRONG_TYPE;
+                }
+            } else if (value.isnumber()) {
+                switch (targetType) {
+                case TARGET_TYPE_BYTE:
+                case TARGET_TYPE_CHAR:
+                case TARGET_TYPE_SHORT:
+                case TARGET_TYPE_INT:
+                    return SCORE_WRONG_TYPE;
+
+                case TARGET_TYPE_LONG: {
+                    double d = value.todouble();
+                    return fromStringPenalty +
+                            ((d == (long)d) ? 1 : SCORE_WRONG_TYPE);
+                }
+
+                case TARGET_TYPE_FLOAT: {
+                    double d = value.todouble();
+                    return fromStringPenalty +
+                            ((d == (float)d) ? 1 : SCORE_WRONG_TYPE);
+                }
+
+                case TARGET_TYPE_DOUBLE:
+                    return fromStringPenalty + 0;
+
+                default:
+                    return SCORE_WRONG_TYPE;
+                }
+            } else {
+                return SCORE_UNCOERCIBLE;
+            }
+        }
+
+        public Object coerce(LuaValue value) {
+            if (value.isnil() && nullable) {
+                return null;
+            }
+
+            switch ( targetType ) {
+                case TARGET_TYPE_BYTE: return new Byte((byte) value.toint());
+                case TARGET_TYPE_CHAR: return new Character((char) value.toint());
+                case TARGET_TYPE_SHORT: return new Short((short) value.toint());
+                case TARGET_TYPE_INT: return new Integer((int) value.toint());
+                case TARGET_TYPE_LONG: return new Long((long) value.todouble());
+                case TARGET_TYPE_FLOAT: return new Float((float) value.todouble());
+                case TARGET_TYPE_DOUBLE: return new Double((double) value.todouble());
+                default: return null;
+            }
+        }
 	}
 
 	static final class StringCoercion implements Coercion {
@@ -238,7 +272,7 @@ public class CoerceLuaToJava {
 				return inheritanceLevels( componentType, value.touserdata().getClass().getComponentType() );
 			case LuaValue.TNIL:
 				return SCORE_NULL_VALUE;
-			default: 
+			default:
 				return SCORE_UNCOERCIBLE;
 			}
 		}
@@ -255,18 +289,18 @@ public class CoerceLuaToJava {
 				return value.touserdata();
 			case LuaValue.TNIL:
 				return null;
-			default: 
+			default:
 				return null;
 			}
-			
+
 		}
 	}
 
-	/** 
+	/**
 	 * Determine levels of inheritance between a base class and a subclass
 	 * @param baseclass base class to look for
 	 * @param subclass class from which to start looking
-	 * @return number of inheritance levels between subclass and baseclass, 
+	 * @return number of inheritance levels between subclass and baseclass,
 	 * or SCORE_UNCOERCIBLE if not a subclass
 	 */
 	static final int inheritanceLevels( Class baseclass, Class subclass ) {
@@ -276,11 +310,11 @@ public class CoerceLuaToJava {
 			return 0;
 		int min = Math.min( SCORE_UNCOERCIBLE, inheritanceLevels( baseclass, subclass.getSuperclass() ) + 1 );
 		Class[] ifaces = subclass.getInterfaces();
-		for ( int i=0; i<ifaces.length; i++ ) 
+		for ( int i=0; i<ifaces.length; i++ )
 			min = Math.min(min, inheritanceLevels(baseclass, ifaces[i]) + 1 );
 		return min;
 	}
-	
+
 	static final class ObjectCoercion implements Coercion {
 		final Class targetType;
 		ObjectCoercion(Class targetType) {
@@ -290,21 +324,83 @@ public class CoerceLuaToJava {
 			return "ObjectCoercion("+targetType.getName()+")";
 		}
 		public int score(LuaValue value) {
-			switch ( value.type() ) {
-			case LuaValue.TNUMBER:
-				return inheritanceLevels( targetType, value.isint()? Integer.class: Double.class );
-			case LuaValue.TBOOLEAN:
-				return inheritanceLevels( targetType, Boolean.class );
-			case LuaValue.TSTRING:
-				return inheritanceLevels( targetType, String.class );
-			case LuaValue.TUSERDATA:
-				return inheritanceLevels( targetType, value.touserdata().getClass() );
-			case LuaValue.TNIL:
-				return SCORE_NULL_VALUE;
-			default:
-				return inheritanceLevels( targetType, value.getClass() );
-			}
-		}
+            switch (value.type()) {
+            case LuaValue.TNUMBER:
+                if (value.isint()) {
+                    if (targetType == Integer.class ||
+                        targetType == Integer.TYPE) {
+                        return 0;
+                    }
+                    if (targetType == Long.class ||
+                        targetType == Long.TYPE) {
+                        return 10;
+                    }
+                    if (targetType == Float.class ||
+                        targetType == Float.TYPE) {
+                        return 20;
+                    }
+                    if (targetType == Double.class ||
+                        targetType == Double.TYPE) {
+                        return 30;
+                    }
+                    if (targetType == Object.class) {
+                        return SCORE_OBJECT_FALLBACK;
+                    }
+                    return SCORE_INHERITANCE + inheritanceLevels(targetType, Integer.class);
+                 } else {
+                    if (targetType == Double.class ||
+                        targetType == Double.TYPE) {
+                        return 0;
+                    }
+                    if (targetType == Float.class ||
+                        targetType == Float.TYPE) {
+                        return 10;
+                    }
+                    if (targetType == Object.class) {
+                        return SCORE_OBJECT_FALLBACK;
+                    }
+                    return SCORE_INHERITANCE + inheritanceLevels(targetType, Double.class);
+               }
+            case LuaValue.TBOOLEAN:
+                if (targetType == Boolean.class ||
+                    targetType == Boolean.TYPE) {
+                    return 0;
+                }
+
+                if (targetType == Object.class) {
+                    return SCORE_OBJECT_FALLBACK;
+                }
+
+                return inheritanceLevels(targetType, Boolean.class);
+
+            case LuaValue.TSTRING:
+                if (targetType == String.class) {
+                    return 0;
+                }
+
+                if (targetType == Object.class) {
+                    return SCORE_OBJECT_FALLBACK;
+                }
+
+                return inheritanceLevels(targetType, String.class);
+
+            case LuaValue.TUSERDATA:
+                return inheritanceLevels(
+                    targetType,
+                    value.touserdata().getClass()
+                );
+
+            case LuaValue.TNIL:
+                return SCORE_NULL_VALUE;
+
+            default:
+                if (targetType == Object.class) {
+                    return SCORE_OBJECT_FALLBACK;
+                }
+
+                return inheritanceLevels(targetType, value.getClass());
+            }
+        }
 		public Object coerce(LuaValue value) {
 			switch ( value.type() ) {
 			case LuaValue.TNUMBER:
@@ -325,36 +421,43 @@ public class CoerceLuaToJava {
 
 	static {
 		Coercion boolCoercion   = new BoolCoercion();
-		Coercion byteCoercion   = new NumericCoercion(NumericCoercion.TARGET_TYPE_BYTE);
-		Coercion charCoercion   = new NumericCoercion(NumericCoercion.TARGET_TYPE_CHAR);
-		Coercion shortCoercion  = new NumericCoercion(NumericCoercion.TARGET_TYPE_SHORT);
-		Coercion intCoercion    = new NumericCoercion(NumericCoercion.TARGET_TYPE_INT);
-		Coercion longCoercion   = new NumericCoercion(NumericCoercion.TARGET_TYPE_LONG);
-		Coercion floatCoercion  = new NumericCoercion(NumericCoercion.TARGET_TYPE_FLOAT);
-		Coercion doubleCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_DOUBLE);
-		Coercion stringCoercion = new StringCoercion(StringCoercion.TARGET_TYPE_STRING);
+        Coercion byteCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_BYTE, false);
+        Coercion byteWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_BYTE, true);
+        Coercion charCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_CHAR, false);
+        Coercion charWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_CHAR, true);
+        Coercion shortCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_SHORT, false);
+        Coercion shortWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_SHORT, true);
+        Coercion intCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_INT, false);
+        Coercion intWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_INT, true);
+        Coercion longCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_LONG, false);
+        Coercion longWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_LONG, true);
+        Coercion floatCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_FLOAT, false);
+        Coercion floatWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_FLOAT, true);
+        Coercion doubleCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_DOUBLE, false);
+        Coercion doubleWrapperCoercion = new NumericCoercion(NumericCoercion.TARGET_TYPE_DOUBLE, true);
+        Coercion stringCoercion = new StringCoercion(StringCoercion.TARGET_TYPE_STRING);
 		Coercion bytesCoercion  = new StringCoercion(StringCoercion.TARGET_TYPE_BYTES);
-		
-		COERCIONS.put( Boolean.TYPE, boolCoercion );
-		COERCIONS.put( Boolean.class, boolCoercion );
-		COERCIONS.put( Byte.TYPE, byteCoercion );
-		COERCIONS.put( Byte.class, byteCoercion );
-		COERCIONS.put( Character.TYPE, charCoercion );
-		COERCIONS.put( Character.class, charCoercion );
-		COERCIONS.put( Short.TYPE, shortCoercion );
-		COERCIONS.put( Short.class, shortCoercion );
-		COERCIONS.put( Integer.TYPE, intCoercion );
-		COERCIONS.put( Integer.class, intCoercion );
-		COERCIONS.put( Long.TYPE, longCoercion );
-		COERCIONS.put( Long.class, longCoercion );
-		COERCIONS.put( Float.TYPE, floatCoercion );
-		COERCIONS.put( Float.class, floatCoercion );
-		COERCIONS.put( Double.TYPE, doubleCoercion );
-		COERCIONS.put( Double.class, doubleCoercion );
-		COERCIONS.put( String.class, stringCoercion );
-		COERCIONS.put( byte[].class, bytesCoercion );
+
+		COERCIONS.put(Byte.TYPE, byteCoercion);
+        COERCIONS.put(Byte.class, byteWrapperCoercion);
+        COERCIONS.put(Character.TYPE, charCoercion);
+        COERCIONS.put(Character.class, charWrapperCoercion);
+        COERCIONS.put(Short.TYPE, shortCoercion);
+        COERCIONS.put(Short.class, shortWrapperCoercion);
+        COERCIONS.put(Integer.TYPE, intCoercion);
+        COERCIONS.put(Integer.class, intWrapperCoercion);
+        COERCIONS.put(Long.TYPE, longCoercion);
+        COERCIONS.put(Long.class, longWrapperCoercion);
+        COERCIONS.put(Float.TYPE, floatCoercion);
+        COERCIONS.put(Float.class, floatWrapperCoercion);
+        COERCIONS.put(Double.TYPE, doubleCoercion);
+        COERCIONS.put(Double.class, doubleWrapperCoercion);
+        COERCIONS.put(Boolean.TYPE, boolCoercion);
+        COERCIONS.put(Boolean.class, boolCoercion);
+        COERCIONS.put(String.class, stringCoercion);
+        COERCIONS.put(byte[].class, bytesCoercion);
 	}
-	
+
 	static Coercion getCoercion(Class c) {
 		Coercion co = (Coercion) COERCIONS.get( c );
 		if ( co != null ) {

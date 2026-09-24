@@ -10,7 +10,7 @@
 *
 * The above copyright notice and this permission notice shall be included in
 * all copies or substantial portions of the Software.
-* 
+*
 * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -28,10 +28,10 @@ import org.luaj.vm2.lib.jse.CoerceLuaToJava.Coercion;
 /**
  * Java method or constructor.
  * <p>
- * Primarily handles argument coercion for parameter lists including scoring of compatibility and 
+ * Primarily handles argument coercion for parameter lists including scoring of compatibility and
  * java varargs handling.
  * <p>
- * This class is not used directly.  
+ * This class is not used directly.
  * It is an abstract base class for {@link JavaConstructor} and {@link JavaMethod}.
  * @see JavaConstructor
  * @see JavaMethod
@@ -40,12 +40,13 @@ import org.luaj.vm2.lib.jse.CoerceLuaToJava.Coercion;
  */
 abstract
 class JavaMember extends VarArgFunction {
-	
+
 	static final int METHOD_MODIFIERS_VARARGS = 0x80;
+    static final int SCORE_VARARGS = 0x20;
 
 	final Coercion[] fixedargs;
 	final Coercion varargs;
-	
+
 	protected JavaMember(Class[] params, int modifiers) {
 		boolean isvarargs = ((modifiers & METHOD_MODIFIERS_VARARGS) != 0);
 		fixedargs = new CoerceLuaToJava.Coercion[isvarargs? params.length-1: params.length];
@@ -53,18 +54,46 @@ class JavaMember extends VarArgFunction {
 			fixedargs[i] = CoerceLuaToJava.getCoercion( params[i] );
 		varargs = isvarargs? CoerceLuaToJava.getCoercion( params[params.length-1].getComponentType() ): null;
 	}
-	
-	int score(Varargs args) {
-		int n = args.narg();
-		int s = n>fixedargs.length? CoerceLuaToJava.SCORE_WRONG_TYPE * (n-fixedargs.length): 0;
-		for ( int j=0; j<fixedargs.length; j++ )
-			s += fixedargs[j].score( args.arg(j+1) );
-		if ( varargs != null )
-			for ( int k=fixedargs.length; k<n; k++ )
-				s += varargs.score( args.arg(k+1) );
-		return s;
-	}
-	
+
+    int score(Varargs args) {
+        int n = args.narg();
+        /*
+         * Normal methods must have exactly the expected number of arguments.
+         */
+        if (varargs == null && n != fixedargs.length)
+            return CoerceLuaToJava.SCORE_UNCOERCIBLE;
+        /*
+         * A varargs method must receive all fixed arguments.
+         */
+        if (varargs != null && n < fixedargs.length)
+            return CoerceLuaToJava.SCORE_UNCOERCIBLE;
+
+        int score = 0;
+
+        for (int i = 0; i < fixedargs.length; i++) {
+            int s = fixedargs[i].score(args.arg(i + 1));
+            if (s >= CoerceLuaToJava.SCORE_UNCOERCIBLE)
+                return CoerceLuaToJava.SCORE_UNCOERCIBLE;
+            score += s;
+        }
+
+        if (varargs != null) {
+            /* Penalizes varargs compared to normal methods
+             * both should be preferred when applicable.
+             */
+            score += SCORE_VARARGS;
+
+            for (int i = fixedargs.length; i < n; i++) {
+                int s = varargs.score(args.arg(i + 1));
+                if (s >= CoerceLuaToJava.SCORE_UNCOERCIBLE)
+                    return CoerceLuaToJava.SCORE_UNCOERCIBLE;
+                score += s;
+            }
+        }
+
+        return score;
+    }
+
 	protected Object[] convertArgs(Varargs args) {
 		Object[] a;
 		if ( varargs == null ) {
