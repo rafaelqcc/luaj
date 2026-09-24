@@ -392,14 +392,16 @@ public class BaseLib extends TwoArgFunction implements ResourceFinder {
 		}
 	}
 	
-	// "pairs" (t) -> iter-func, t, nil
+    	// "pairs" (t) -> iter-func, t, nil
 	static final class pairs extends VarArgFunction {
 		final next next;
 		pairs(next next) {
 			this.next = next;
 		}
 		public Varargs invoke(Varargs args) {
-				return varargsOf( next, args.checktable(1), NIL );
+			LuaValue t = args.checktable(1);
+			LuaValue h = t.metatag(PAIRS);
+			return h.isnil()? varargsOf( next, t, NIL ): h.invoke(t);
 		}
 	}
 	
@@ -407,7 +409,9 @@ public class BaseLib extends TwoArgFunction implements ResourceFinder {
 	static final class ipairs extends VarArgFunction {
 		inext inext = new inext();
 		public Varargs invoke(Varargs args) {
-			return varargsOf( inext, args.checktable(1), ZERO );
+			LuaValue t = args.checktable(1);
+			LuaValue h = t.metatag(IPAIRS);
+			return h.isnil()? varargsOf( inext, t, ZERO ): h.invoke(t);
 		}
 	}
 	
