@@ -376,9 +376,9 @@ public class DebugLib extends TwoArgFunction {
 			LuaValue func = args.checkfunction(1);
 			if ( func instanceof LuaClosure ) {
 				LuaClosure c = (LuaClosure) func;
-				if ( c.upValues != null && up > 0 && up <= c.upValues.length ) {
+				if ( c.upValues != null && up > 0 && up <= c.upValues.length )
 					return valueOf(c.upValues[up-1].hashCode());
-				}
+				argerror(2, "invalid upvalue index");
 			}
 			return NIL;
 		}
