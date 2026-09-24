@@ -93,6 +93,10 @@ class JavaMethod extends JavaMember {
 	}
 
 	LuaValue invokeMethod(Object instance, Varargs args) {
+		if (score(args) >= CoerceLuaToJava.SCORE_UNCOERCIBLE) {
+			return LuaValue.error("no coercible public method");
+		}
+
 		Object[] a = convertArgs(args);
 		try {
 			return CoerceJavaToLua.coerce( method.invoke(instance, a) );

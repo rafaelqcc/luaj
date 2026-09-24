@@ -25,6 +25,8 @@ import org.luaj.vm2.Varargs;
 import org.luaj.vm2.lib.VarArgFunction;
 import org.luaj.vm2.lib.jse.CoerceLuaToJava.Coercion;
 
+import java.lang.reflect.Array;
+
 /**
  * Java method or constructor.
  * <p>
@@ -46,13 +48,20 @@ class JavaMember extends VarArgFunction {
 
 	final Coercion[] fixedargs;
 	final Coercion varargs;
+    final Class varargsType;
 
 	protected JavaMember(Class[] params, int modifiers) {
 		boolean isvarargs = ((modifiers & METHOD_MODIFIERS_VARARGS) != 0);
 		fixedargs = new CoerceLuaToJava.Coercion[isvarargs? params.length-1: params.length];
 		for ( int i=0; i<fixedargs.length; i++ )
 			fixedargs[i] = CoerceLuaToJava.getCoercion( params[i] );
-		varargs = isvarargs? CoerceLuaToJava.getCoercion( params[params.length-1].getComponentType() ): null;
+        if (isvarargs) {
+            varargsType = params[params.length - 1].getComponentType();
+            varargs = CoerceLuaToJava.getCoercion(varargsType);
+        } else {
+            varargsType = null;
+            varargs = null;
+        }
 	}
 
     int score(Varargs args) {
@@ -95,22 +104,35 @@ class JavaMember extends VarArgFunction {
     }
 
 	protected Object[] convertArgs(Varargs args) {
-		Object[] a;
-		if ( varargs == null ) {
-			a = new Object[fixedargs.length];
-			for ( int i=0; i<a.length; i++ )
-				a[i] = fixedargs[i].coerce( args.arg(i+1) );
-		} else {
-			// should be the fixed arguments, followed by an array with the varargs
-			a = new Object[fixedargs.length+1];
-			int nvar = Math.max(0, args.narg()-fixedargs.length);
-			Object[] vararray = new Object[nvar];
-			for ( int i=0; i<fixedargs.length; i++ )
-				a[i] = fixedargs[i].coerce( args.arg(i+1) );
-			a[a.length-1] = vararray;
-			for ( int i=0; i<nvar; i++ )
-				vararray[i] = varargs.coerce( args.arg(fixedargs.length+i+1) );
-		}
-		return a;
-	}
+        Object[] a;
+
+        if (varargs == null) {
+            a = new Object[fixedargs.length];
+
+            for (int i = 0; i < a.length; i++)
+                a[i] = fixedargs[i].coerce(args.arg(i + 1));
+        } else {
+            // fixed arguments followed by an array containing the varargs
+            a = new Object[fixedargs.length + 1];
+
+            int nvar = Math.max(0, args.narg() - fixedargs.length);
+
+            Object vararray = Array.newInstance(varargsType, nvar);
+
+            for (int i = 0; i < fixedargs.length; i++)
+                a[i] = fixedargs[i].coerce(args.arg(i + 1));
+
+            for (int i = 0; i < nvar; i++) {
+                Array.set(
+                    vararray,
+                    i,
+                    varargs.coerce(args.arg(fixedargs.length + i + 1))
+                );
+            }
+
+            a[a.length - 1] = vararray;
+        }
+
+        return a;
+    }
 }
