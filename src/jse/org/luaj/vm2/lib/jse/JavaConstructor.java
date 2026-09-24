@@ -26,6 +26,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaValue;
@@ -93,24 +95,164 @@ class JavaConstructor extends JavaMember {
 		}
 
 		public Varargs invoke(Varargs args) {
-			JavaConstructor best = null;
-			int score = CoerceLuaToJava.SCORE_UNCOERCIBLE;
-			for ( int i=0; i<constructors.length; i++ ) {
-				int s = constructors[i].score(args);
-				if ( s < score ) {
-					score = s;
-					best = constructors[i];
-					if ( score == 0 )
-						break;
+			int bestScore = CoerceLuaToJava.SCORE_UNCOERCIBLE;
+			List<JavaConstructor> candidates = new ArrayList<JavaConstructor>();
+
+			/*
+			 *
+			 * Find the lowest score and save all constructors
+			 * who have that score.
+			 */
+			for (int i = 0; i < constructors.length; i++) {
+				JavaConstructor constructor = constructors[i];
+				int score = constructor.score(args);
+
+				if (score >= CoerceLuaToJava.SCORE_UNCOERCIBLE) {
+					continue;
+				}
+
+				if (score < bestScore) {
+					bestScore = score;
+					candidates.clear();
+					candidates.add(constructor);
+				} else if (score == bestScore) {
+					candidates.add(constructor);
 				}
 			}
-			
-			// any match? 
-			if ( best == null )
-				LuaValue.error("no coercible public method");
-			
-			// invoke it
+
+			if (candidates.size() == 0) {
+				return LuaValue.error("no coercible public constructor");
+			}
+
+			/*
+			 * There is no tie.
+			 */
+			if (candidates.size() == 1) {
+				return candidates.get(0).invoke(args);
+			}
+
+			/*
+			 *
+			 * Resolving specific issues only among candidates
+			 * with the lowest score.
+			 */
+			JavaConstructor best = null;
+
+			for (int i = 0; i < candidates.size(); i++) {
+				JavaConstructor candidate = candidates.get(i);
+				boolean betterThanAll = true;
+
+				for (int j = 0; j < candidates.size(); j++) {
+					if (i == j) {
+						continue;
+					}
+
+					JavaConstructor other = candidates.get(j);
+					int comparison = compareSpecificity(candidate, other, args);
+
+					if (comparison >= 0) {
+						betterThanAll = false;
+						break;
+					}
+				}
+
+				if (betterThanAll) {
+					if (best != null) {
+						return LuaValue.error(
+							"ambiguous overloaded Java constructor"
+						);
+					}
+
+					best = candidate;
+				}
+			}
+
+			if (best == null) {
+				return LuaValue.error(
+					"ambiguous overloaded Java constructor"
+				);
+			}
+
 			return best.invoke(args);
+		}
+
+		private static int compareSpecificity(
+			JavaConstructor a, JavaConstructor b, Varargs args) {
+
+			/*
+			 * The normal constructor is more specific than varargs.
+			 * when both reached this stage with the same score.
+			 */
+			if (a.varargs == null && b.varargs != null) {
+				return -1;
+			}
+
+			if (a.varargs != null && b.varargs == null) {
+				return 1;
+			}
+
+			Class[] aTypes = a.constructor.getParameterTypes();
+			Class[] bTypes = b.constructor.getParameterTypes();
+
+			boolean aBetter = false;
+			boolean bBetter = false;
+
+			int count = args.narg();
+
+			for (int i = 0; i < count; i++) {
+				Class aType = effectiveParameterType(a, aTypes, i);
+				Class bType = effectiveParameterType(b, bTypes, i);
+
+				if (aType == null || bType == null || aType == bType) {
+					continue;
+				}
+
+				if (bType.isAssignableFrom(aType)) {
+					/*
+					 * aType is a sub type of bType.
+					 */
+					aBetter = true;
+				} else if (aType.isAssignableFrom(bType)) {
+					/*
+					 * bType is a sub type of aType.
+					 */
+					bBetter = true;
+				}
+			}
+
+			if (aBetter && !bBetter) {
+				return -1;
+			}
+
+			if (bBetter && !aBetter) {
+				return 1;
+			}
+
+			/*
+			 * None is strictly more specific.
+			 */
+			return 0;
+		}
+
+		private static Class effectiveParameterType(
+			JavaConstructor constructor, Class[] parameterTypes, int index) {
+
+			if (constructor.varargs == null) {
+				if (index >= parameterTypes.length) {
+					return null;
+				}
+
+				return parameterTypes[index];
+			}
+
+			int fixedCount = parameterTypes.length - 1;
+
+			if (index < fixedCount) {
+				return parameterTypes[index];
+			}
+
+			return parameterTypes[parameterTypes.length - 1]
+				.getComponentType();
 		}
 	}
 }
