@@ -231,7 +231,7 @@ public class LoadState {
 	 * @return {@link LuaInteger} or {@link LuaDouble} whose value corresponds to the bits provided.
 	 */
 	public static LuaValue longBitsToLuaNumber( long bits ) {
-		if ( ( bits & ( ( 1L << 63 ) - 1 ) ) == 0L ) {
+		if ( bits == 0L ) {
 			return LuaValue.ZERO;
 		}
 		
