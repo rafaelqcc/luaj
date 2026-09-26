@@ -131,8 +131,10 @@ public class LuaInteger extends LuaNumber {
 	}
 
 	// unary operators
-	public LuaValue neg() { return valueOf(-(long)v); }
-	
+	public LuaValue neg() {
+        return v == 0 ? LuaDouble.valueOf(-0.0) : valueOf(-(long)v);
+    }
+
 	// object equality, used for key comparison
 	public boolean equals(Object o) { return o instanceof LuaInteger? ((LuaInteger)o).v == v: false; }
 	
